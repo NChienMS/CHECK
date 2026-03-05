@@ -1,10 +1,42 @@
-﻿// Shared layout bootstrap.
+// Shared layout bootstrap.
 
-function getBasePath() {
-  const isGitHubPages = window.location.hostname.endsWith("github.io");
-  if (!isGitHubPages) return "";
-  const segment = window.location.pathname.split("/").filter(Boolean)[0] || "";
-  return segment ? `/${segment}` : "";
+function getProjectRootUrl() {
+  const scriptSrc = Array.from(document.scripts)
+    .map((script) => script.getAttribute("src") || "")
+    .find((src) => /assets\/js\/(include|render-header|render-footer)\.js/i.test(src));
+
+  if (scriptSrc) {
+    try {
+      return new URL("../../", new URL(scriptSrc, document.baseURI)).href;
+    } catch (error) {
+      // fallback below
+    }
+  }
+
+  return new URL("./", document.baseURI).href;
+}
+
+function toRelativeUrl(target) {
+  const current = new URL(document.baseURI);
+  if (target.origin !== current.origin) return target.href;
+
+  const fromParts = current.pathname.split("/").filter(Boolean);
+  if (!current.pathname.endsWith("/")) fromParts.pop();
+
+  const toParts = target.pathname.split("/").filter(Boolean);
+
+  let common = 0;
+  while (common < fromParts.length && common < toParts.length && fromParts[common] === toParts[common]) {
+    common += 1;
+  }
+
+  const up = "../".repeat(fromParts.length - common);
+  const down = toParts.slice(common).join("/");
+  let relative = `${up}${down}` || "./";
+  if (!relative.startsWith(".") && !relative.startsWith("/")) relative = `./${relative}`;
+  if (target.search) relative += target.search;
+  if (target.hash) relative += target.hash;
+  return relative;
 }
 
 function withBase(url) {
@@ -14,16 +46,22 @@ function withBase(url) {
     return value;
   }
 
-  const base = getBasePath();
-  const normalized = value.startsWith("/") ? value : `/${value}`;
-  if (base && normalized.startsWith(`${base}/`)) return normalized;
-  return `${base}${normalized}`;
+  let targetUrl;
+  try {
+    targetUrl = value.startsWith("/")
+      ? new URL(value.slice(1), getProjectRootUrl())
+      : new URL(value, document.baseURI);
+  } catch (error) {
+    return value;
+  }
+
+  return toRelativeUrl(targetUrl);
 }
 
 function rewriteInternalRootUrls(html) {
-  const base = getBasePath();
-  if (!base) return html;
-  return String(html || "").replace(/(["'])\/(assets|pages|data|partials|index\.html)/g, `$1${base}/$2`);
+  return String(html || "").replace(/(["'])\/(assets|pages|data|partials|index\.html)([^"']*)/g, (match, quote, head, tail) => {
+    return `${quote}${withBase(`/${head}${tail}`)}`;
+  });
 }
 async function loadPartial(selector, url) {
   const el = document.querySelector(selector);
